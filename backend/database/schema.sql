@@ -43,3 +43,18 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_status
 
 CREATE INDEX IF NOT EXISTS idx_orders_status_deadline
     ON orders(status, deadline);
+
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role VARCHAR(30) NOT NULL DEFAULT 'user'
+        CHECK (role IN ('user', 'admin', 'dispatcher', 'driver')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS revoked_tokens (
+    token_hash VARCHAR(64) PRIMARY KEY,
+    expires_at TIMESTAMPTZ NOT NULL
+);

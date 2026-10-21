@@ -22,7 +22,7 @@ export const getVehicles = async (req, res) => {
 
 export const createVehicle = async (req, res) => {
   try {
-    const { registration_number, name, capacity_kg } = req.body;
+    const { registration_number, name, capacity_kg } = req.validatedBody;
 
     if (
       typeof registration_number !== "string" ||
@@ -64,6 +64,100 @@ export const createVehicle = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to create vehicle",
+    });
+  }
+};
+
+export const updateVehicle = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 1. Validate vehicle ID
+    if (!/^[1-9]\d*$/.test(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid vehicle ID",
+      });
+    }
+
+    // 2. Get validated data
+    const data = req.validatedBody;
+
+    if (!data || Object.keys(data).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No fields provided for update",
+      });
+    }
+
+    // 3. Allow only supported fields
+    const allowedFields = [
+      "registration_number",
+      "name",
+      "capacity_kg",
+    ];
+
+    const fields = Object.keys(data);
+
+    if (fields.some((field) => !allowedFields.includes(field))) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid update field",
+      });
+    }
+
+    // 4. Build parameterized UPDATE query
+    const values = [];
+    const setClause = fields
+      .map((field, index) => {
+        values.push(
+          field === "capacity_kg"
+            ? Number(data[field])
+            : data[field].trim()
+        );
+
+        return `${field} = $${index + 1}`;
+      })
+      .join(", ");
+
+    values.push(Number(id));
+
+    const query = `
+      UPDATE vehicles
+      SET ${setClause}
+      WHERE id = $${values.length}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+
+    // 5. Check if vehicle exists
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Vehicle not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Vehicle updated successfully",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    // 6. Duplicate registration number
+    if (error.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "Registration number already exists",
+      });
+    }
+
+    console.error("Update vehicle error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update vehicle",
     });
   }
 };
