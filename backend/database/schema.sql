@@ -58,3 +58,11 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
     token_hash VARCHAR(64) PRIMARY KEY,
     expires_at TIMESTAMPTZ NOT NULL
 );
+
+ALTER TABLE orders
+ADD COLUMN IF NOT EXISTS assigned_vehicle_id BIGINT
+REFERENCES vehicles(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_orders_assigned_vehicle
+ON orders(assigned_vehicle_id);
+

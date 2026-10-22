@@ -1,6 +1,6 @@
-
+import { authorizeRole } from "../middleware/authorizeRole.js";
 import { Router } from "express";
-
+import { authenticateToken } from "../middleware/authMiddleware.js";
 import {
   getVehicles,
   createVehicle,
@@ -15,16 +15,23 @@ import {
 
 const router = Router();
 
-router.get("/", getVehicles);
+router.get(
+  "/",
+  authenticateToken,
+  authorizeRole("admin", "dispatcher", "driver"),
+  getVehicles
+);
 
 router.post(
   "/",
+  authenticateToken,
   validateBody(createVehicleSchema),
   createVehicle
 );
 
 router.patch(
   "/:id",
+  authenticateToken,
   validateBody(updateVehicleSchema),
   updateVehicle
 );

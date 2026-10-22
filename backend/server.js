@@ -6,6 +6,8 @@ import { readFile } from "node:fs/promises";
 import pool from "./db.js";
 import vehicleRoutes from "./src/routes/vehicleRoutes.js";
 import orderRoutes from "./src/routes/orderRoutes.js";
+import userRoutes from "./src/routes/userRoutes.js";
+import planRoutes from "./src/routes/planRoutes.js";
 dotenv.config();
 import authRoutes from "./src/routes/authRoutes.js";
 const app = express();
@@ -16,6 +18,9 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/plans", planRoutes);
+
 app.get("/", (req, res) => {
   res.send("Welcome to GridFlow API");
 });
