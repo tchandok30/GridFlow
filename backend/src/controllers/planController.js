@@ -13,17 +13,23 @@ export const generatePlan = async (req, res) => {
       "LOCK TABLE orders IN SHARE ROW EXCLUSIVE MODE"
     );
 
-    // 1. Get pending orders by earliest deadline
+    // 1. Fetch pending orders by earliest deadline.
     const ordersResult = await client.query(`
-      SELECT id, order_number, delivery_address,
-             latitude, longitude, package_weight_kg, deadline
+      SELECT
+        id,
+        order_number,
+        delivery_address,
+        latitude,
+        longitude,
+        package_weight_kg,
+        deadline
       FROM orders
       WHERE status = 'pending'
       ORDER BY deadline ASC, created_at ASC
       FOR UPDATE
     `);
 
-    // 2. Get available vehicles
+    // 2. Fetch available vehicles.
     const vehiclesResult = await client.query(`
       SELECT id, name, registration_number, capacity_kg
       FROM vehicles
@@ -36,16 +42,16 @@ export const generatePlan = async (req, res) => {
     const vehicles = vehiclesResult.rows;
 
     const remainingCapacity = new Map(
-      vehicles.map((v) => [
-        String(v.id),
-        Number(v.capacity_kg),
+      vehicles.map((vehicle) => [
+        String(vehicle.id),
+        Number(vehicle.capacity_kg),
       ])
     );
 
     const assignments = [];
     const unassigned = [];
 
-    // 3. Greedy best-fit assignment
+    // 3. Greedy best-fit assignment.
     for (const order of orders) {
       const weight = Number(order.package_weight_kg);
 
@@ -64,7 +70,8 @@ export const generatePlan = async (req, res) => {
         unassigned.push({
           order_id: order.id,
           order_number: order.order_number,
-          reason: "No available vehicle has sufficient capacity",
+          reason:
+            "No available vehicle has sufficient capacity",
         });
         continue;
       }
@@ -93,8 +100,7 @@ export const generatePlan = async (req, res) => {
       });
     }
 
-    // 4. Fetch ALL currently assigned orders,
-    // including orders assigned during earlier requests
+    // 4. Fetch all currently assigned orders.
     const assignedResult = await client.query(`
       SELECT
         o.id AS order_id,
@@ -110,7 +116,7 @@ export const generatePlan = async (req, res) => {
       ORDER BY o.created_at ASC
     `);
 
-    // 5. Group delivery stops by vehicle
+    // 5. Group delivery stops by vehicle.
     const vehicleRoutes = new Map();
     const missingCoordinates = [];
 
@@ -141,7 +147,7 @@ export const generatePlan = async (req, res) => {
       vehicleRoutes.get(key).orders.push(order);
     }
 
-    // 6. Optimize each vehicle's delivery sequence
+    // 6. Validate the depot coordinates.
     const depot = {
       latitude: Number(process.env.DEPOT_LATITUDE),
       longitude: Number(process.env.DEPOT_LONGITUDE),
@@ -153,49 +159,93 @@ export const generatePlan = async (req, res) => {
       Math.abs(depot.latitude) <= 90 &&
       Math.abs(depot.longitude) <= 180;
 
+    // 7. Optimize routes.
     const routes = [];
 
     if (validDepot) {
       for (const route of vehicleRoutes.values()) {
-        const optimized = optimizeRoute(
-          route.orders,
-          depot
-        );
+        const optimized = optimizeRoute(route.orders, depot);
 
         routes.push({
           vehicle_id: route.vehicle_id,
           vehicle_name: route.vehicle_name,
           stops: optimized.stops,
+          initial_distance_km: optimized.initialDistanceKm,
           total_distance_km: optimized.totalDistanceKm,
-        return_to_depot_km: optimized.returnToDepotKm,
+          return_to_depot_km: optimized.returnToDepotKm,
+          distance_saved_km: optimized.distanceSavedKm,
+          improvement_percent: optimized.improvementPercent,
         });
       }
     }
 
+    // 8. Prepare the plan summary.
+    const summary = {
+      total_pending_orders: orders.length,
+      assigned_orders: assignments.length,
+      unassigned_orders: unassigned.length,
+      total_active_assigned_orders: assignedResult.rowCount,
+    };
+
+    const routeWarning = validDepot
+      ? null
+      : "Configure valid DEPOT_LATITUDE and DEPOT_LONGITUDE values in .env";
+
+    const distanceNote =
+      "Distances are straight-line estimates, not road distances.";
+
+    // 9. Save this plan in PostgreSQL.
+    const savedPlan = await client.query(
+      `INSERT INTO delivery_plans (
+        summary,
+        assignments,
+        unassigned,
+        routes,
+        missing_coordinates,
+        route_warning,
+        distance_note
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, created_at`,
+      [
+        JSON.stringify(summary),
+        JSON.stringify(assignments),
+        JSON.stringify(unassigned),
+        JSON.stringify(routes),
+        JSON.stringify(missingCoordinates),
+        routeWarning,
+        distanceNote,
+      ]
+    );
+
+    const planRecord = savedPlan.rows[0];
+
+    // 10. Commit order updates and saved plan together.
     await client.query("COMMIT");
 
     return res.status(200).json({
       success: true,
-      message: "Plan generated successfully",
-      summary: {
-        total_pending_orders: orders.length,
-        assigned_orders: assignments.length,
-        unassigned_orders: unassigned.length,
-        total_active_assigned_orders: assignedResult.rowCount,
-      },
+      message: "Plan generated and saved successfully",
+      plan_id: planRecord.id,
+      created_at: planRecord.created_at,
+      summary,
       assignments,
       unassigned,
       routes,
       missing_coordinates: missingCoordinates,
-      route_warning: validDepot
-        ? null
-        : "Configure valid DEPOT_LATITUDE and DEPOT_LONGITUDE values in .env",
-      distance_note:
-        "Distances are straight-line estimates, not road distances.",
+      route_warning: routeWarning,
+      distance_note: distanceNote,
     });
   } catch (error) {
     if (client) {
-      await client.query("ROLLBACK");
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error(
+          "Plan rollback error:",
+          rollbackError.message
+        );
+      }
     }
 
     console.error("Generate plan error:", error.message);

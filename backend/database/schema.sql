@@ -66,3 +66,18 @@ REFERENCES vehicles(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_orders_assigned_vehicle
 ON orders(assigned_vehicle_id);
 
+
+CREATE TABLE IF NOT EXISTS delivery_plans (
+    id BIGSERIAL PRIMARY KEY,
+    summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    assignments JSONB NOT NULL DEFAULT '[]'::jsonb,
+    unassigned JSONB NOT NULL DEFAULT '[]'::jsonb,
+    routes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    missing_coordinates JSONB NOT NULL DEFAULT '[]'::jsonb,
+    route_warning TEXT,
+    distance_note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_plans_created_at
+ON delivery_plans (created_at DESC);

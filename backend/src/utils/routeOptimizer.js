@@ -17,6 +17,7 @@ const isValidLocation = (point) => {
   );
 };
 
+// Calculate straight-line distance between two coordinates.
 export const haversineDistance = (a, b) => {
   if (!isValidLocation(a) || !isValidLocation(b)) {
     throw new Error("Invalid latitude or longitude");
@@ -45,6 +46,7 @@ export const haversineDistance = (a, b) => {
   );
 };
 
+// Calculate complete route distance, including return to depot.
 const getRouteDistance = (stops, depot) => {
   if (stops.length === 0) return 0;
 
@@ -56,7 +58,6 @@ const getRouteDistance = (stops, depot) => {
     current = stop;
   }
 
-  // Return to depot after the final delivery.
   distance += haversineDistance(current, depot);
 
   return distance;
@@ -70,20 +71,26 @@ export const optimizeRoute = (orders, depot) => {
   for (const order of orders) {
     if (!isValidLocation(order)) {
       throw new Error(
-        `Invalid coordinates for order ${order.order_number ?? order.order_id ?? ""}`
+        `Invalid coordinates for order ${
+          order.order_number ?? order.order_id ?? ""
+        }`
       );
     }
   }
 
+  // Handle routes with no orders.
   if (orders.length === 0) {
     return {
       stops: [],
+      initialDistanceKm: 0,
       totalDistanceKm: 0,
       returnToDepotKm: 0,
+      distanceSavedKm: 0,
+      improvementPercent: 0,
     };
   }
 
-  // Step 1: Nearest Neighbor initial route.
+  // STEP 1: Build the initial route using Nearest Neighbor.
   const remaining = [...orders];
   const stops = [];
   let current = depot;
@@ -110,7 +117,10 @@ export const optimizeRoute = (orders, depot) => {
     current = next;
   }
 
-  // Step 2: Improve the route using 2-opt.
+  // Save the initial distance before optimization.
+  const initialDistanceKm = getRouteDistance(stops, depot);
+
+  // STEP 2: Improve the route using 2-opt.
   let improved = true;
 
   while (improved) {
@@ -142,7 +152,7 @@ export const optimizeRoute = (orders, depot) => {
     }
   }
 
-  // Step 3: Calculate distances between consecutive stops.
+  // STEP 3: Calculate each stop's distance from the previous location.
   let previous = depot;
 
   const routeStops = stops.map((stop) => {
@@ -159,13 +169,44 @@ export const optimizeRoute = (orders, depot) => {
     };
   });
 
+  // STEP 4: Calculate final route metrics.
+  const finalDistanceKm = getRouteDistance(stops, depot);
   const returnToDepotKm = haversineDistance(previous, depot);
+
+  const distanceSavedKm = Math.max(
+    0,
+    initialDistanceKm - finalDistanceKm
+  );
+
+  const improvementPercent =
+    initialDistanceKm > 0
+      ? (distanceSavedKm / initialDistanceKm) * 100
+      : 0;
 
   return {
     stops: routeStops,
-    totalDistanceKm: Number(
-      getRouteDistance(stops, depot).toFixed(2)
+
+    // Distance before 2-opt.
+    initialDistanceKm: Number(
+      initialDistanceKm.toFixed(2)
     ),
-    returnToDepotKm: Number(returnToDepotKm.toFixed(2)),
+
+    // Final optimized distance, including return to depot.
+    totalDistanceKm: Number(
+      finalDistanceKm.toFixed(2)
+    ),
+
+    returnToDepotKm: Number(
+      returnToDepotKm.toFixed(2)
+    ),
+
+    // Distance and percentage saved by 2-opt.
+    distanceSavedKm: Number(
+      distanceSavedKm.toFixed(2)
+    ),
+
+    improvementPercent: Number(
+      improvementPercent.toFixed(2)
+    ),
   };
 };
